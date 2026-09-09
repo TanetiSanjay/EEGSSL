@@ -1,0 +1,7 @@
+.venv
+.weights
+
+**/__pycache__
+**/.DS_Store
+NeuroLM
+Data/
