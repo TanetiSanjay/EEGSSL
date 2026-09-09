@@ -9,19 +9,7 @@
         "**/__pycache__": true,
         ".venv"         : true,
         ".weights"      : false,
-<<<<<<< HEAD
-    
-    }
-=======
-        
         "README.md"     : true
-    },
-    "python-envs.pythonProjects": [
-        {
-            "path": "runs/vq_fft",
-            "envManager": "ms-python.python:venv",
-            "packageManager": "ms-python.python:pip"
-        }
-    ]
->>>>>>> recovery
+
+    }
 }
