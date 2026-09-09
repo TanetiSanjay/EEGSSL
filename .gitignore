@@ -4,4 +4,10 @@
 **/__pycache__
 **/.DS_Store
 NeuroLM
+<<<<<<< HEAD
 Data/
+=======
+Data/
+
+runs/
+>>>>>>> recovery

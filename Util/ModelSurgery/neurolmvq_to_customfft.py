@@ -100,7 +100,11 @@ def _get_n_embd(transformer: nn.Module) -> int:
 def build_attention_mask(input_mask, seq_len: int):
     if input_mask is None:
         return None
+<<<<<<< HEAD
     return input_mask.unsqueeze(1).repeat(1, seq_len, 1).unsqueeze(1)
+=======
+    return input_mask.unsqueeze(1).repeat(1, seq_len, 1).unsqueeze(1).bool()
+>>>>>>> recovery
 
 
 def _default_chans_and_time(batch_size, seq_len, device, input_chans, input_time):
@@ -207,7 +211,11 @@ def _fft_forward(self, x, y_fft, input_chans=None, input_time=None, input_mask=N
         f"{split}/total_loss": loss.item(),
     }
 
+<<<<<<< HEAD
     return loss, encoder_features, log
+=======
+    return loss, encoder_features, log, xrec_fft
+>>>>>>> recovery
 
 
 def patch_vq(model: "VQ", fft_dim: int, n_channels: int) -> "VQ":
@@ -257,7 +265,11 @@ if __name__ == '__main__':
     input_mask = torch.ones(B, N)
 
     with torch.no_grad():
+<<<<<<< HEAD
         loss, encoder_features, log = model(x, x, input_mask=input_mask)
+=======
+        loss, encoder_features, log, xrec_fft = model(x, x, input_mask=input_mask)
+>>>>>>> recovery
 
     print("loss:", loss.item())
     print("encoder_features:", encoder_features.shape)
