@@ -20,7 +20,7 @@ def _unpack_batch(batch, device = "cpu"):
     if input_chans is not None: input_chans = input_chans.to(device, non_blocking=True)
     if input_time  is not None: input_time  = input_time.to(device, non_blocking=True)
 
-    return x, input_chans, input_time, input_mask
+    return x, input_chans, input_time, input_mask.bool()
 
 
 vq_path = ".weights/NeuroLm/checkpoints/VQ.pt"
@@ -42,8 +42,14 @@ for k, v in state_dict.items():
         clean_state_dict[new_k] = v
         
 model.load_state_dict(clean_state_dict)
-model = patch_vq(model, fft_dim=101, n_channels=128)
+model = patch_vq(model, fft_dim=100, n_channels=128)
 model.load_state_dict(torch.load("/speech/sanjay/Projects/EEGSSL/runs/vq_fft/checkpoints/latest.pt", map_location="cpu")["model"], strict = False)
+
+count = 0
+for p in model.parameters(): count += p.numel()
+trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Trainable params: {trainable_params}") # Should match ~147M
+print(f"The model has around {count} params")
 
 train_loader, valid_loader = create_dataloaders(
     root_dir="Data/MAT_CHUNK_EXTRACTED",

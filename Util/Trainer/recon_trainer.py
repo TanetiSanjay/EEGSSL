@@ -235,7 +235,7 @@ class DistributedVQTrainer:
         if input_chans is not None: input_chans = input_chans.to(self.device, non_blocking=True)
         if input_time  is not None: input_time  = input_time.to(self.device, non_blocking=True)
 
-        return x, input_chans, input_time, input_mask
+        return x, input_chans, input_time, input_mask.bool()
 
 
     def train_epoch(self, epoch : int) -> float:

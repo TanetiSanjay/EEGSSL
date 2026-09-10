@@ -17,34 +17,34 @@ from datetime import timedelta
 @dataclass
 class TrainConfig:
     # Model & Data Paths
-    vq_path: str = ".weights/NeuroLm/checkpoints/VQ.pt"
-    data_root: str = "Data/MAT_CHUNK_EXTRACTED"
-    fft_dim: int = 101
-    n_channels: int = 128
+    vq_path     : str = ".weights/NeuroLm/checkpoints/VQ.pt"
+    data_root   : str = "Data/MAT_CHUNK_EXTRACTED"
+    fft_dim     : int = 100
+    n_channels  : int = 128
 
     # DataLoader & Data Split
-    batch_size: int = 16
-    num_workers: int = 2
-    val_split: float = 0.1
-    seed: int = 42
-    distributed: bool = True
+    batch_size  : int = 48
+    num_workers : int = 4
+    val_split   : float = 0.1
+    seed        : int = 42
+    distributed : bool = True
 
     # Optimization & Training Setup
-    num_epochs: int = 40
-    learning_rate: float = 3e-4
-    weight_decay: float = 0.05
-    warmup_epochs: int = 10
-    min_lr: float = 1e-6
+    num_epochs      : int = 40
+    learning_rate   : float = 3e-4
+    weight_decay    : float = 0.05
+    warmup_epochs   : int = 10
+    min_lr          : float = 1e-6
     grad_accum_steps: int = 1
-    grad_clip_norm: float = 1.0
-    valid_interval: int = 1
-    amp: bool = True
+    grad_clip_norm  : float = 1.0
+    valid_interval  : int = 1
+    amp             : bool = True
 
     # Directories & Checkpoints
-    output_dir: str = "runs/vq_fft"
-    checkpoint_dir: str = "runs/vq_fft/checkpoints"
-    log_dir: str = "runs/vq_fft/logs"
-    resume_from: str | None = None
+    output_dir      : str = "runs/vq_fft"
+    checkpoint_dir  : str = "runs/vq_fft/checkpoints"
+    log_dir         : str = "runs/vq_fft/logs"
+    resume_from     : str | None = None
 
 def main():
     config = TrainConfig()
@@ -81,7 +81,7 @@ def main():
     del clean_state_dict
     gc.collect()
 
-    model = patch_vq(model, fft_dim=101, n_channels=128)
+    model = patch_vq(model, fft_dim=config.fft_dim, n_channels=config.n_channels)
 
     train_lodaer, valid_loader, _, _ = create_distributed_dataloaders(
         root_dir        = "Data/MAT_CHUNK_EXTRACTED",
@@ -99,6 +99,7 @@ def main():
     )
 
     trainer.fit()
+    dist.destroy_process_group()
 
 
 if __name__ == '__main__':

@@ -13,9 +13,15 @@ from model.model_neural_transformer import NTConfig
 
 
 class FFTChannelAttention(nn.Module):
+    """
+    Encoder: Processes frequency representations across channels, injects spatial/channel
+    positional encodings, and aggregates channel information into sequence tokens.
+    (Temporal positional encoding is handled downstream by NeuroLM's time_embed).
+    """
     def __init__(
         self,
         fft_dim: int,
+        n_channels: int = 128,
         embed_dim: int = 768,
         channel_dim: int = 256,
         num_heads: int = 8,
@@ -25,13 +31,19 @@ class FFTChannelAttention(nn.Module):
         self.fft_dim = fft_dim
         self.embed_dim = embed_dim
         self.channel_dim = channel_dim
+        self.n_channels = n_channels
 
+        # 1. Frequency feature projection
         self.freq_proj = nn.Sequential(
             nn.Linear(fft_dim, channel_dim),
             nn.GELU(),
             nn.LayerNorm(channel_dim),
         )
 
+        # 2. Channel Positional Embedding (Spatial Identity)
+        self.channel_pos_embed = nn.Parameter(torch.randn(1, n_channels, channel_dim) * 0.02)
+
+        # 3. Cross-Channel Attention
         self.channel_attention = nn.MultiheadAttention(
             embed_dim=channel_dim,
             num_heads=num_heads,
@@ -40,56 +52,114 @@ class FFTChannelAttention(nn.Module):
         )
         self.norm = nn.LayerNorm(channel_dim)
 
+        # 4. Latent projection
         self.proj = nn.Sequential(
             nn.Linear(channel_dim, embed_dim),
             nn.GELU(),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Input:  [B, C, N, F]
+        Output: [B, N, D]
+        """
         B, C, N, F_dim = x.shape
         if F_dim != self.fft_dim:
-            raise ValueError(
-                f"FFTChannelAttention configured for fft_dim={self.fft_dim}, got F={F_dim}"
-            )
+            raise ValueError(f"Expected fft_dim={self.fft_dim}, got {F_dim}")
+        if C != self.n_channels:
+            raise ValueError(f"Expected n_channels={self.n_channels}, got {C}")
 
+        # Reshape to treat each timestep independently across batches
         x = rearrange(x, "b c n f -> (b n) c f")
         x = self.freq_proj(x)
+
+        # Inject Spatial Channel Positional Embeddings
+        x = x + self.channel_pos_embed
+
+        # Perform Cross-Channel Attention
         attn_out, _ = self.channel_attention(x, x, x)
         x = self.norm(x + attn_out)
+
+        # Aggregate across channels & project to latent dimension
         x = x.mean(dim=1)
         x = self.proj(x)
+
+        # Restore temporal sequence shape [B, N, D]
         x = rearrange(x, "(b n) d -> b n d", b=B, n=N)
         return x
 
 
 class FFTDecoderHead(nn.Module):
-    def __init__(self, embed_dim: int, n_channels: int, fft_dim: int):
+    """
+    Decoder: Inverse transformation matching FFTChannelAttention. 
+    Uses learned channel queries (with channel embeddings) to query 
+    sequence latents via Cross-Attention, followed by frequency reconstruction.
+    """
+    def __init__(
+        self,
+        embed_dim: int = 768,
+        n_channels: int = 128,
+        fft_dim: int = 101,
+        channel_dim: int = 256,
+        num_heads: int = 8,
+        dropout: float = 0.0,
+    ):
         super().__init__()
         self.embed_dim = embed_dim
         self.n_channels = n_channels
         self.fft_dim = fft_dim
+        self.channel_dim = channel_dim
 
-        self.channel_embedding = nn.Embedding(n_channels, embed_dim)
-
-        self.mlp = nn.Sequential(
-            nn.Linear(embed_dim * 2, embed_dim),
+        # 1. Latent sequence projection
+        self.latent_proj = nn.Sequential(
+            nn.Linear(embed_dim, channel_dim),
             nn.GELU(),
-            nn.Linear(embed_dim, fft_dim),
+            nn.LayerNorm(channel_dim),
+        )
+
+        # 2. Learned Channel Query Embeddings (Matched with Spatial Identity)
+        self.channel_queries = nn.Parameter(torch.randn(1, n_channels, channel_dim) * 0.02)
+
+        # 3. Cross-Attention (Channel Queries attend to Latent Tokens)
+        self.cross_attn = nn.MultiheadAttention(
+            embed_dim=channel_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.norm1 = nn.LayerNorm(channel_dim)
+
+        # 4. Reconstruction FFN (Project back to raw FFT bins)
+        self.ffn = nn.Sequential(
+            nn.Linear(channel_dim, channel_dim * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(channel_dim * 2, fft_dim),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Input:  [B, N, D]
+        Output: [B, C, N, F]
+        """
         B, N, D = x.shape
-        C = self.n_channels
 
-        channel_ids = torch.arange(C, device=x.device)
-        channel_emb = self.channel_embedding(channel_ids)
+        # Flatten sequence into batch space: [(B * N), 1, D]
+        x_flat = rearrange(x, "b n d -> (b n) 1 d")
+        x_proj = self.latent_proj(x_flat)  # [(B * N), 1, channel_dim]
 
-        x = x.unsqueeze(2).expand(B, N, C, D)
-        channel_emb = channel_emb.view(1, 1, C, D).expand(B, N, C, D)
+        # Expand channel queries to match batch-sequence length
+        queries = self.channel_queries.expand(B * N, -1, -1)  # [(B * N), C, channel_dim]
 
-        feat = torch.cat([x, channel_emb], dim=-1)
-        out = self.mlp(feat)
-        out = rearrange(out, "b n c f -> b c n f")
+        # Cross-Attention: Channel Queries look up features from Sequence Tokens
+        attn_out, _ = self.cross_attn(query=queries, key=x_proj, value=x_proj)
+        x_attn = self.norm1(queries + attn_out)
+
+        # Reconstruct frequency bins
+        freq_out = self.ffn(x_attn)  # [(B * N), C, fft_dim]
+
+        # Reshape to original 4D tensor format
+        out = rearrange(freq_out, "(b n) c f -> b c n f", b=B, n=N)
         return out
 
 
@@ -100,11 +170,7 @@ def _get_n_embd(transformer: nn.Module) -> int:
 def build_attention_mask(input_mask, seq_len: int):
     if input_mask is None:
         return None
-<<<<<<< HEAD
     return input_mask.unsqueeze(1).repeat(1, seq_len, 1).unsqueeze(1)
-=======
-    return input_mask.unsqueeze(1).repeat(1, seq_len, 1).unsqueeze(1).bool()
->>>>>>> recovery
 
 
 def _default_chans_and_time(batch_size, seq_len, device, input_chans, input_time):
@@ -211,11 +277,7 @@ def _fft_forward(self, x, y_fft, input_chans=None, input_time=None, input_mask=N
         f"{split}/total_loss": loss.item(),
     }
 
-<<<<<<< HEAD
-    return loss, encoder_features, log
-=======
     return loss, encoder_features, log, xrec_fft
->>>>>>> recovery
 
 
 def patch_vq(model: "VQ", fft_dim: int, n_channels: int) -> "VQ":
@@ -224,6 +286,7 @@ def patch_vq(model: "VQ", fft_dim: int, n_channels: int) -> "VQ":
 
     model.encoder.patch_embed = FFTChannelAttention(
         fft_dim=fft_dim,
+        n_channels=n_channels,
         embed_dim=encoder_embed_dim,
     )
 
@@ -263,17 +326,16 @@ if __name__ == '__main__':
     x = torch.randn(B, C, N, F_dim)
     y_fft = torch.randn(B, C, N, F_dim)
     input_mask = torch.ones(B, N)
+    
+    # Pass explicit time indices for each frame to maintain sequence continuity
+    input_time = torch.tensor([[0, 1, 2, 3], [4, 5, 6, 7]])
 
     with torch.no_grad():
-<<<<<<< HEAD
-        loss, encoder_features, log = model(x, x, input_mask=input_mask)
-=======
-        loss, encoder_features, log, xrec_fft = model(x, x, input_mask=input_mask)
->>>>>>> recovery
+        loss, encoder_features, log, x_recon = model(x, y_fft, input_time=input_time, input_mask=input_mask)
 
     print("loss:", loss.item())
     print("encoder_features:", encoder_features.shape)
     print("log:", log)
 
-    tokens = model.get_codebook_indices(x, input_mask=input_mask)
+    tokens = model.get_codebook_indices(x, input_time=input_time, input_mask=input_mask)
     print("tokens:", tokens.shape)
