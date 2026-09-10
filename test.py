@@ -43,7 +43,7 @@ for k, v in state_dict.items():
         
 model.load_state_dict(clean_state_dict)
 model = patch_vq(model, fft_dim=100, n_channels=128)
-model.load_state_dict(torch.load("/speech/sanjay/Projects/EEGSSL/runs/vq_fft/checkpoints/latest.pt", map_location="cpu")["model"], strict = False)
+model.load_state_dict(torch.load("/speech/sanjay/Projects/EEGSSL/runs/vq_fft/checkpoints/best_test.pt", map_location="cpu")["model"], strict = False)
 
 count = 0
 for p in model.parameters(): count += p.numel()
