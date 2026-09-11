@@ -9,7 +9,7 @@
         "**/__pycache__": true,
         ".venv"         : true,
         ".weights"      : false,
-        "README.md"     : true
-
+        "README.md"     : true,
+        "NeuroLM"       : true,
     }
 }

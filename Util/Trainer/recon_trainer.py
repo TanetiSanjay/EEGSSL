@@ -288,10 +288,10 @@ class DistributedVQTrainer:
 
                 self.optimizer.zero_grad(set_to_none=True)
 
-            step_loss     = loss.item() * self.grad_accum_steps
-            total_loss   += step_loss
+            step_loss       = loss.item() * self.grad_accum_steps
+            total_loss     += step_loss
             total_rec_loss += log.get(f"{'train' if self.model.training else 'val'}/rec_fft_loss", 0.0)
-            num_batches  += 1
+            num_batches    += 1
 
             if self.is_main_process:
                 current_lr = self.optimizer.param_groups[0]["lr"]

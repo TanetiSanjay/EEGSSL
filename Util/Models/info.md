@@ -1,0 +1,1 @@
+This directory contains the trainers, loaders and everything in one single Folder. This is independent of the main "train.py" file.
